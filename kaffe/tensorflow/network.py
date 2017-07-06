@@ -56,10 +56,10 @@ class Network(object):
         session: The current TensorFlow session
         ignore_missing: If true, serialized weights for missing layers are ignored.
         '''
-        data_dict = np.load(data_path).item()
+        data_dict = np.load(data_path, encoding='latin1').item()
         for op_name in data_dict:
             with tf.variable_scope(op_name, reuse=True):
-                for param_name, data in data_dict[op_name].iteritems():
+                for param_name, data in list(data_dict[op_name].items()):
                     try:
                         var = tf.get_variable(param_name)
                         session.run(var.assign(data))
@@ -74,7 +74,7 @@ class Network(object):
         assert len(args) != 0
         self.terminals = []
         for fed_layer in args:
-            if isinstance(fed_layer, basestring):
+            if isinstance(fed_layer, str):
                 try:
                     fed_layer = self.layers[fed_layer]
                 except KeyError:
@@ -90,7 +90,7 @@ class Network(object):
         '''Returns an index-suffixed unique name for the given prefix.
         This is used for auto-generating layer names based on the type-prefix.
         '''
-        ident = sum(t.startswith(prefix) for t, _ in self.layers.items()) + 1
+        ident = sum(t.startswith(prefix) for t, _ in list(self.layers.items())) + 1
         return '%s_%d' % (prefix, ident)
 
     def make_var(self, name, shape):
@@ -117,7 +117,7 @@ class Network(object):
         # Verify that the padding is acceptable
         self.validate_padding(padding)
         # Get the number of channels in the input
-        c_i = input.get_shape()[-1]
+        c_i = input.get_shape().as_list()[-1]
         # Verify that the grouping parameter is valid
         assert c_i % group == 0
         assert c_o % group == 0
@@ -125,11 +125,13 @@ class Network(object):
         convolve = lambda i, k: tf.nn.conv2d(i, k, [1, s_h, s_w, 1], padding=padding)
         with tf.variable_scope(name) as scope:
             kernel = self.make_var('weights', shape=[k_h, k_w, c_i / group, c_o])
-            if group == 1:
+            if group == 1: # new2?
                 # This is the common-case. Convolve the input without any further complications.
+                #kernel = self.make_var('w', shape=[k_h, k_w, c_i, c_o])
                 output = convolve(input, kernel)
             else:
                 # Split the input into groups and then convolve each of them independently
+                #kernel = self.make_var('w', shape=[k_h, k_w, c_i / group, c_o])
                 input_groups = tf.split(3, group, input)
                 kernel_groups = tf.split(3, group, kernel)
                 output_groups = [convolve(i, k) for i, k in zip(input_groups, kernel_groups)]
@@ -137,7 +139,7 @@ class Network(object):
                 output = tf.concat(3, output_groups)
             # Add the biases
             if biased:
-                biases = self.make_var('biases', [c_o])
+                biases = self.make_var('b', [c_o])
                 output = tf.nn.bias_add(output, biases)
             if relu:
                 # ReLU non-linearity
@@ -195,15 +197,15 @@ class Network(object):
                 feed_in = tf.reshape(input, [-1, dim])
             else:
                 feed_in, dim = (input, input_shape[-1].value)
-            weights = self.make_var('weights', shape=[dim, num_out])
-            biases = self.make_var('biases', [num_out])
+            weights = self.make_var('w', shape=[dim, num_out])
+            biases = self.make_var('b', [num_out])
             op = tf.nn.relu_layer if relu else tf.nn.xw_plus_b
             fc = op(feed_in, weights, biases, name=scope.name)
             return fc
 
     @layer
     def softmax(self, input, name):
-        input_shape = map(lambda v: v.value, input.get_shape())
+        input_shape = [v.value for v in input.get_shape()]
         if len(input_shape) > 2:
             # For certain models (like NiN), the singleton spatial dimensions
             # need to be explicitly squeezed, since they're not broadcast-able
