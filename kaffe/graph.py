@@ -142,7 +142,7 @@ class GraphBuilder(object):
     def load(self):
         '''Load the layer definitions from the prototxt.'''
         self.params = get_caffe_resolver().NetParameter()
-        with open(self.def_path, 'rb') as def_file:
+        with open(self.def_path, 'r') as def_file:
             text_format.Merge(def_file.read(), self.params)
 
     def filter_layers(self, layers):
@@ -189,10 +189,10 @@ class GraphBuilder(object):
         '''
         nodes = [Node(name, NodeKind.Data) for name in self.params.input]
         if len(nodes):
-            input_dim = map(int, self.params.input_dim)
+            input_dim = list(map(int, self.params.input_dim))
             if not input_dim:
                 if len(self.params.input_shape) > 0:
-                    input_dim = map(int, self.params.input_shape[0].dim)
+                    input_dim = list(map(int, self.params.input_shape[0].dim))
                 else:
                     raise KaffeError('Dimensions for input not specified.')
             for node in nodes:
